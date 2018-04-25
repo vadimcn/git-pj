@@ -1,0 +1,13 @@
+[package]
+name = "git-pijul"
+version = "0.1.0"
+authors = ["pe@pijul.org <pe@pijul.org>"]
+
+[dependencies]
+libpijul = "*"
+git2 = "*"
+rand = "*"
+chrono = "*"
+env_logger = "*"
+clap = "*"
+log = "*"
