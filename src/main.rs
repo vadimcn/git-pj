@@ -9,12 +9,14 @@ extern crate clap;
 extern crate log;
 use chrono::TimeZone;
 use git2::*;
-use std::collections::HashSet;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 use clap::{App, Arg};
 use std::path::Path;
+use libpijul::patch::PatchFlags;
 
 fn main() {
-    env_logger::init().unwrap();
+    env_logger::init();
     let matches = App::new("Git -> Pijul converter")
         .version(crate_version!())
         .about("Converts a Git repository into a Pijul one")
@@ -35,60 +37,95 @@ fn main() {
     std::fs::remove_dir_all(&pijul_dir).unwrap_or(());
     std::fs::create_dir_all(&pristine_dir).unwrap();
 
-    for commit_id in commits.iter() {
+    for &(commit_id, ref branch, ref forks) in commits.iter() {
 
         debug!("id {:?}", commit_id);
-        let commit = repo.find_commit(*commit_id).unwrap();
+        let commit = repo.find_commit(commit_id).unwrap();
         let mut checkout = build::CheckoutBuilder::new();
         checkout.force();
         repo.checkout_tree(commit.as_object(), Some(&mut checkout)).unwrap();
 
-        file_moves(&repo, &commit, &pristine_dir);
+        let mut increase = 409600;
+        let _res = loop {
+            match file_moves(&repo, &commit, &pristine_dir, increase) {
+                Err(ref e) if e.lacks_space() => { increase *= 2 },
+                e => break e
+            }
+        };
 
         let author = commit.author();
-        record(path, "master",
+        record(path, &branch,
                libpijul::PatchHeader {
                    authors: vec![author.name().unwrap().to_string()],
                    name: commit.message().unwrap().to_string(),
                    description: None,
                    timestamp: chrono::Utc.timestamp(author.when().seconds(), 0),
-                   flag: libpijul::patch::PatchFlags::empty(),
+                   flag: PatchFlags::empty(),
                });
 
+        let new_repo = libpijul::Repository::open(&pristine_dir, None).unwrap();
+
+        for fork in forks {
+            let mut txn = new_repo.mut_txn_begin(rand::thread_rng()).unwrap();
+
+            let branch = txn.open_branch(&branch).unwrap();
+            let new_branch = txn.fork(&branch, &fork).unwrap();
+            let _res1 = txn.commit_branch(branch);
+            let _res2 = txn.commit_branch(new_branch);
+            let _res3 = txn.commit();
+        }
     }
 }
 
-fn get_commits(repo: &git2::Repository) -> Vec<git2::Oid> {
-    let head = repo.head().unwrap();
-    debug!("head shorthand {:?}", head.shorthand());
-    let oid = head.target().unwrap();
-    let commit = repo.find_commit(oid).unwrap();
+fn get_commits(repo: &git2::Repository) -> Vec<(git2::Oid, std::string::String, std::vec::Vec<std::string::String>)> {
+    let mut walk = repo.revwalk().unwrap();
+    walk.set_sorting(git2::SORT_TOPOLOGICAL);
 
-    let mut commits_reverse = Vec::new();;
-    let mut commits = vec![commit];
-    let mut explored = HashSet::new();
-    while let Some(commit) = commits.pop() {
-        debug!("commit {:?}", commit.id());
-        if explored.insert(commit.id()) {
-            debug!("not explored");
-            for parent in commit.parents() {
-                debug!("commit parent: {:?}", parent.id());
-                commits.push(parent)
-            }
-            commits_reverse.push(commit.id());
+    let mut commit_to_branch = HashMap::new();
+    for branch in repo.branches(None).unwrap() {
+        let branch = branch.unwrap().0;
+        let commit = branch.get().target().unwrap();
+        let _res = walk.push(commit);
+        commit_to_branch.insert(commit, (branch.name().unwrap().unwrap().to_owned(), Vec::new()));
+    }
+
+    let mut commits_reverse = Vec::new();
+    for commit in walk {
+        let commit = commit.unwrap();
+        let (current_branch, forks) = commit_to_branch.get(&commit).unwrap().clone();
+
+        for parent in repo.find_commit(commit).unwrap().parents() {
+            match commit_to_branch.entry(parent.id()) {
+                // put the parent into the same branch as the child, if it's not already on one
+                Vacant(entry) => {
+                    entry.insert((current_branch.clone(), Vec::new()));
+                },
+                // otherwise this is a fork point at the parent
+                Occupied(mut entry) => {
+                    let ref mut parent_forks = entry.get_mut().1;
+                    parent_forks.push(current_branch.clone());
+                },
+            };
         }
+
+        debug!("commit {:?} in branch {:?} with forks {:?}", commit, current_branch, forks);
+        commits_reverse.push((commit, current_branch, forks));
     }
 
     commits_reverse.reverse();
     commits_reverse
 }
 
-fn file_moves(repo: &Repository, commit: &Commit, pristine_dir: &Path) {
+fn file_moves(repo: &Repository, commit: &Commit, pristine_dir: &Path, increase: u64)
+                    -> libpijul::Result<()> {
     debug!("file_moves, commit {:?}", commit.id());
     debug!("commit msg: {:?}", commit.message());
 
     let tree1 = commit.tree().unwrap();
-    let new_repo = libpijul::Repository::open(&pristine_dir, None).unwrap();
+    let new_repo = match libpijul::Repository::open(&pristine_dir, Some(increase)) {
+        Ok(repo) => repo,
+        Err(x) => return Err(x)
+    };
     let mut txn = new_repo.mut_txn_begin(rand::thread_rng()).unwrap();
 
     let mut has_parents = false;
@@ -110,6 +147,7 @@ fn file_moves(repo: &Repository, commit: &Commit, pristine_dir: &Path) {
 
     txn.commit().unwrap();
 
+    Ok(())
 }
 
 fn file_cb<R:rand::Rng>(txn: &mut libpijul::MutTxn<R>, delta: DiffDelta) -> bool {
@@ -149,7 +187,6 @@ fn record(output: &Path, branch_name: &str, header: libpijul::PatchHeader) {
 
         let mut new_txn = new_repo.mut_txn_begin(rand::thread_rng()).unwrap();
         use libpijul::*;
-        use libpijul::patch::PatchFlags;
         let mut record = RecordState::new();
         new_txn.record(&mut record, branch_name, output, None).unwrap();
         let (changes, sync) = record.finish();
