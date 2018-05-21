@@ -14,7 +14,7 @@ use clap::{App, Arg};
 use std::path::Path;
 
 fn main() {
-    env_logger::init().unwrap();
+    env_logger::init();
     let matches = App::new("Git -> Pijul converter")
         .version(crate_version!())
         .about("Converts a Git repository into a Pijul one")
@@ -143,7 +143,7 @@ fn file_cb<R:rand::Rng>(txn: &mut libpijul::MutTxn<R>, delta: DiffDelta) -> bool
 
 fn record(output: &Path, branch_name: &str, header: libpijul::PatchHeader) {
 
-    let (patch, hash, sync) = {
+    let (patch, hash, syncs) = {
 
         let new_repo = libpijul::Repository::open(output.join(".pijul").join("pristine"), None).unwrap();
 
@@ -152,8 +152,11 @@ fn record(output: &Path, branch_name: &str, header: libpijul::PatchHeader) {
         use libpijul::patch::PatchFlags;
         let mut record = RecordState::new();
         new_txn.record(&mut record, branch_name, output, None).unwrap();
-        let (changes, sync) = record.finish();
-        let changes = changes.into_iter().flat_map(|x| x.into_iter()).collect();
+        let (changes, syncs) = record.finish();
+        let changes: Vec<_> = changes
+            .into_iter()
+            .flat_map(|x| new_txn.globalize_record(x).into_iter())
+            .collect();
         let branch = new_txn.get_branch(branch_name).unwrap();
         let patch = new_txn.new_patch(
             &branch,
@@ -170,13 +173,13 @@ fn record(output: &Path, branch_name: &str, header: libpijul::PatchHeader) {
         std::fs::create_dir_all(&patches_dir).unwrap();
         let hash = patch.save(&patches_dir, None).unwrap();
         new_txn.commit().unwrap();
-        (patch, hash, sync)
+        (patch, hash, syncs)
     };
     debug!("hash recorded: {:?}",hash);
     let mut increase = 409600;
     let pristine_dir = output.join(".pijul").join("pristine");
     let res = loop {
-        match record_no_resize(&pristine_dir, &output, branch_name, &hash, &patch, &sync, increase) {
+        match record_no_resize(&pristine_dir, &output, branch_name, &hash, &patch, &syncs, increase) {
             Err(ref e) if e.lacks_space() => { increase *= 2 },
             e => break e
         }
@@ -185,8 +188,8 @@ fn record(output: &Path, branch_name: &str, header: libpijul::PatchHeader) {
 }
 
 fn record_no_resize(pristine_dir: &Path, r: &Path, branch_name: &str, hash: &libpijul::Hash,
-                        patch: &libpijul::Patch, syncs: &[libpijul::InodeUpdate], increase: u64)
-                        -> libpijul::Result<Option<libpijul::Hash>> {
+                    patch: &libpijul::Patch, syncs: &HashSet<libpijul::InodeUpdate>, increase: u64)
+                    -> libpijul::Result<Option<libpijul::Hash>> {
 
     use libpijul::*;
     let size_increase = increase + patch.size_upper_bound() as u64;
