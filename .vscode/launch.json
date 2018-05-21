@@ -12,8 +12,10 @@
             "cwd": "${env:HOME}/NW/pj-test",
             "env": {
                 "RUST_LOG": "git_pijul=debug"
+                //"RUST_LOG": "git_pijul=debug,libpijul::file_operations=debug,libpijul::apply=debug"
                 //"RUST_LOG": "debug,sanakirja=error"
-            }
+            },
+            "terminal": "integrated"
         }
     ]
 }
