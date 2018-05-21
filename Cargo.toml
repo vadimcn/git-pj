@@ -4,10 +4,14 @@ version = "0.1.0"
 authors = ["pe@pijul.org <pe@pijul.org>"]
 
 [dependencies]
-libpijul = "*"
+libpijul = { path = "libpijul" }
 git2 = "*"
 rand = "*"
 chrono = "*"
 env_logger = "*"
 clap = "*"
 log = "*"
+
+[profile.release]
+opt-level = 1
+debug = true

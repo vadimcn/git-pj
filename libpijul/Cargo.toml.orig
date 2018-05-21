@@ -1,0 +1,65 @@
+[package]
+name = "libpijul"
+description = "A patch-based distributed version control system, easy to use and fast."
+version = "0.10.2"
+authors = ["Pierre-Étienne Meunier","Florent Becker"]
+license = "GPL-2.0+"
+homepage = "https://pijul.org/"
+documentation = "https://docs.rs/libpijul"
+repository = "https://nest.pijul.com/pijul_org/pijul"
+
+include = [
+  "Cargo.toml", "COPYING",
+  "src/copyright",
+  "src/record.rs",
+  "src/optimal_diff/add.rs",
+  "src/optimal_diff/delete.rs",
+  "src/optimal_diff/mod.rs",
+  "src/unrecord/mod.rs",
+  "src/unrecord/context_repair.rs",
+  "src/unrecord/edges.rs",
+  "src/unrecord/nodes.rs",
+  "src/apply/mod.rs",
+  "src/apply/apply.rs",
+  "src/apply/find_alive.rs",
+  "src/apply/repair_deleted_context.rs",
+  "src/backend/mod.rs",
+  "src/backend/edge.rs",
+  "src/backend/file_header.rs",
+  "src/backend/file_id.rs",
+  "src/backend/hash.rs",
+  "src/backend/inode.rs",
+  "src/backend/key.rs",
+  "src/backend/patch_id.rs",
+  "src/backend/small_string.rs",
+  "src/patch.rs",
+  "src/lib.rs",
+  "src/error.rs",
+  "src/log",
+  "src/graph.rs",
+  "src/output.rs",
+  "src/conflict.rs",
+  "src/file_operations.rs",
+  "src/fs_representation.rs"
+]
+
+[dependencies]
+bitflags = "1.0"
+byteorder = "1.2"
+flate2 = "1.0"
+log = "0.4"
+rand = "0.4"
+sanakirja = "0.8.16"
+chrono = { version = "0.4", features = [ "serde" ] }
+serde = "1.0"
+serde_derive = "1.0"
+bincode = "0.8"
+hex = "0.3"
+tempdir = "0.3"
+error-chain = "0.11"
+bs58 = "0.2"
+base64 = "0.9"
+ignore = "0.3"
+serde_json = "1.0"
+openssl = "0.10"
+thrussh-keys = "0.9.5"
