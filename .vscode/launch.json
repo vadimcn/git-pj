@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug git-pijul",
+            "cargo": {
+                "args": [ "build", "--bin=git-pijul"]
+            },
+            "args": ["${env:HOME}/NW/pj-test"],
+            "cwd": "${env:HOME}/NW/pj-test",
+            "env": {
+                "RUST_LOG": "git_pijul=debug"
+                //"RUST_LOG": "debug,sanakirja=error"
+            }
+        }
+    ]
+}
